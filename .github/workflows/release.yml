@@ -4,15 +4,17 @@ on:
     tags:
       - v*
 
+  workflow_dispatch:
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   get_tag:
-    if: github.repository == 'mihonapp/mihon'
+    if: github.repository == 'AhmadNaruto/Taison'
     name: Extract tag name
-    runs-on: 'ubuntu-24.04'
+    runs-on: 'ubuntu-latest'
     outputs:
       tag: ${{ steps.extract.outputs.tag }}
 
@@ -22,9 +24,9 @@ jobs:
         run: echo "tag=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
 
   build:
-    if: github.repository == 'mihonapp/mihon'
+    if: github.repository == 'AhmadNaruto/Taison'
     name: Build
-    runs-on: 'ubuntu-24.04'
+    runs-on: 'ubuntu-latest'
     needs: get_tag
 
     steps:
@@ -34,7 +36,7 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
         with:
-          java-version: 17
+          java-version: 21
           distribution: temurin
 
       - name: Set up Gradle
@@ -57,28 +59,32 @@ jobs:
       - name: Rename APK
         run: |
           set -e
+          APK_UNIVERSAL=$(find . -name "*universal*.apk" | head -1)
+          APK_ARM64=$(find . -name "*arm64*.apk" | head -1)
+          APK_ARMEABI=$(find . -name "*armeabi*.apk" | head -1)
+          APK_X86=$(find . -name "*x86*.apk" | head -1 | head -1)
+          APK_X86_64=$(find . -name "*x86_64*.apk" | head -1)
 
-          mv app/build/outputs/apk/release/app-universal-release-unsigned-signed.apk mihon-${{ needs.get_tag.outputs.tag }}.apk
-          mv app/build/outputs/apk/release/app-arm64-v8a-release-unsigned-signed.apk mihon-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
-          mv app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned-signed.apk mihon-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
-          mv app/build/outputs/apk/release/app-x86-release-unsigned-signed.apk mihon-x86-${{ needs.get_tag.outputs.tag }}.apk
-          mv app/build/outputs/apk/release/app-x86_64-release-unsigned-signed.apk mihon-x86_64-${{ needs.get_tag.outputs.tag }}.apk
+          PRENAME=${{ needs.get_tag.outputs.tag }}.apk
+
+          [ -n "$APK_UNIVERSAL" ] && mv "$APK_UNIVERSAL" "taison-${{ needs.get_tag.outputs.tag }}.apk" && echo "universal=1" >> $GITHUB_OUTPUT || echo "universal=0" >> $GITHUB_OUTPUT
+          [ -n "$APK_ARM64" ] && mv "$APK_ARM64" "taison-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk" && echo "arm64=1" >> $GITHUB_OUTPUT || echo "arm64=0" >> $GITHUB_OUTPUT
+          [ -n "$APK_ARMEABI" ] && mv "$APK_ARMEABI" "taison-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk" && echo "armeabi=1" >> $GITHUB_OUTPUT || echo "armeabi=0" >> $GITHUB_OUTPUT
+          [ -n "$APK_X86" ] && mv "$APK_X86" "taison-x86-${{ needs.get_tag.outputs.tag }}.apk" && echo "x86=1" >> $GITHUB_OUTPUT || echo "x86=0" >> $GITHUB_OUTPUT
+          [ -n "$APK_X86_64" ] && mv "$APK_X86_64" "taison-x86_64-${{ needs.get_tag.outputs.tag }}.apk" && echo "x86_64=1" >> $GITHUB_OUTPUT || echo "x86_64=0" >> $GITHUB_OUTPUT
+
 
       - name: Upload APK
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: mihon
+          name: taison
           path: |
-            mihon-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-x86-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-x86_64-${{ needs.get_tag.outputs.tag }}.apk
+            taison-*.apk
 
   build_foss:
-    if: github.repository == 'mihonapp/mihon'
+    if: github.repository == 'AhmadNaruto/Taison'
     name: Build (FOSS)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     needs: get_tag
 
     steps:
@@ -88,7 +94,7 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
         with:
-          java-version: 17
+          java-version: 21
           distribution: temurin
 
       - name: Set up Gradle
@@ -113,17 +119,17 @@ jobs:
       - name: Rename APK
         run: |
           set -e
-
-          mv app/build/outputs/apk/foss/app-universal-foss-unsigned-signed.apk mihon-${{ needs.get_tag.outputs.tag }}-foss.apk
+          FOSS=$(find . -type f -name *foss*.apk)
+          [ -n "$FOSS" ] && mv "$FOSS" taison-${{ needs.get_tag.outputs.tag }}-foss.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: mihon-foss
-          path: mihon-${{ needs.get_tag.outputs.tag }}-foss.apk
+          name: taison-${{ needs.get_tag.outputs.tag }}-foss
+          path: taison-${{ needs.get_tag.outputs.tag }}-foss.apk
 
   release:
-    if: github.repository == 'mihonapp/mihon'
+    if: github.repository == 'AhmadNaruto/Taison'
     name: Create GitHub Release
     runs-on: ubuntu-24.04
     needs: [get_tag, build, build_foss]
@@ -139,8 +145,7 @@ jobs:
         with:
           failOnError: false
           name: |
-            mihon
-            mihon-foss
+            taison*.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
@@ -160,11 +165,11 @@ jobs:
             >
             > ### If you are unsure which version to download then go with `mihon-${{ needs.get_tag.outputs.tag }}.apk`
           files: |
-            mihon-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-${{ needs.get_tag.outputs.tag }}-foss.apk
-            mihon-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-x86-${{ needs.get_tag.outputs.tag }}.apk
+            taison-${{ needs.get_tag.outputs.tag }}.apk
+            taison-${{ needs.get_tag.outputs.tag }}-foss.apk
+            taison-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
+            taoson-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
+            taison-x86-${{ needs.get_tag.outputs.tag }}.apk
             mihon-x86_64-${{ needs.get_tag.outputs.tag }}.apk
           draft: true
           prerelease: false
