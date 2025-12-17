@@ -344,7 +344,9 @@ class ReaderActivity : BaseActivity() {
     }
 
     override fun onPause() {
-        viewModel.flushReadTimer()
+        lifecycleScope.launchNonCancellable {
+            viewModel.updateHistory()
+        }
         super.onPause()
     }
 
@@ -833,7 +835,7 @@ class ReaderActivity : BaseActivity() {
 
         private val grayBackgroundColor = Color.rgb(0x20, 0x21, 0x25)
 
-        /**
+        /*
          * Initializes the reader subscriptions.
          */
         init {
