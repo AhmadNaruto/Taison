@@ -3,48 +3,63 @@ on:
   push:
     tags:
       - v*
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: "Release TAG"
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  get_tag:
-    if: github.repository == 'mihonapp/mihon'
-    name: Extract tag name
-    runs-on: 'ubuntu-24.04'
+  initialize:
+    name: "Initialize deploy"
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
     outputs:
-      tag: ${{ steps.extract.outputs.tag }}
-
+      tag: ${{ steps.get_tag.outputs.tag }}
     steps:
-      - name: Get tag name
-        id: extract
-        run: echo "tag=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
+      - name: Get tag
+        id: get_tag
+        run: |
+          if [[ "${{ github.event_name }}" = "push" && "${{ github.ref_type }}" = "tag" ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          elif [[ -n "${{ github.event.inputs.release_ref }}" ]]; then
+            TAG="${{ github.event.inputs.release_ref }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
   build:
-    if: github.repository == 'mihonapp/mihon'
+    if: github.repository == 'AhmadNaruto/Taison'
     name: Build
-    runs-on: 'ubuntu-24.04'
-    needs: get_tag
+    runs-on: 'ubuntu-latest'
+    needs: initialize
 
     steps:
       - name: Checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@v6
 
       - name: Set up JDK
-        uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
+        uses: actions/setup-java@v5
         with:
-          java-version: 17
+          java-version: 21
           distribution: temurin
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Build
         run: ./gradlew assembleRelease -Pinclude-telemetry -Penable-updater
 
+      - name: Debug - List APK files before signing
+        run: find app/build/outputs/apk -name "*.apk" -type f | xargs ls -la
+
       - name: Sign APK
-        uses: r0adkll/sign-android-release@f30bdd30588842ac76044ecdbd4b6d0e3e813478
+        uses: r0adkll/sign-android-release@v1
         with:
           releaseDirectory: app/build/outputs/apk/release
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
@@ -54,53 +69,91 @@ jobs:
         env:
           BUILD_TOOLS_VERSION: '35.0.1'
 
-      - name: Rename APK
+      - name: Debug - List APK files after signing
         run: |
-          set -e
+          echo "=== Signed APK files ==="
+          find app/build/outputs/apk -name "*.apk" -type f | xargs ls -la
 
-          mv app/build/outputs/apk/release/app-universal-release-unsigned-signed.apk mihon-${{ needs.get_tag.outputs.tag }}.apk
-          mv app/build/outputs/apk/release/app-arm64-v8a-release-unsigned-signed.apk mihon-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
-          mv app/build/outputs/apk/release/app-armeabi-v7a-release-unsigned-signed.apk mihon-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
-          mv app/build/outputs/apk/release/app-x86-release-unsigned-signed.apk mihon-x86-${{ needs.get_tag.outputs.tag }}.apk
-          mv app/build/outputs/apk/release/app-x86_64-release-unsigned-signed.apk mihon-x86_64-${{ needs.get_tag.outputs.tag }}.apk
+      - name: Find and rename APK files
+        run: |
+          TAG="${{ needs.initialize.outputs.tag }}"
+          RELEASE_DIR="app/build/outputs/apk/release"
+
+          echo "Looking for APK files in: $RELEASE_DIR"
+
+          # Cari semua file APK yang sudah ditandatangani
+          for apk_file in "$RELEASE_DIR"/*-signed.apk "$RELEASE_DIR"/*-unsigned-signed.apk; do
+            if [ -f "$apk_file" ]; then
+              echo "Found APK: $apk_file"
+              filename=$(basename "$apk_file")
+
+              # Tentukan nama baru berdasarkan pola nama
+              case $filename in
+                *universal*)
+                  new_name="taison-$TAG.apk"
+                  ;;
+                *arm64*)
+                  new_name="taison-arm64-v8a-$TAG.apk"
+                  ;;
+                *armeabi*)
+                  new_name="taison-armeabi-v7a-$TAG.apk"
+                  ;;
+                *x86_64*)
+                  new_name="taison-x86_64-$TAG.apk"
+                  ;;
+                *x86*)
+                  new_name="taison-x86-$TAG.apk"
+                  ;;
+                *)
+                  new_name="taison-$TAG.apk"
+                  ;;
+              esac
+
+              echo "Renaming $filename to $new_name"
+              mv "$apk_file" "$new_name"
+            fi
+          done
+
+          echo "=== Final APK files ==="
+          ls -la *.apk 2>/dev/null || echo "No APK files found"
 
       - name: Upload APK
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@v5
         with:
-          name: mihon
+          name: taison-release
           path: |
-            mihon-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-x86-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-x86_64-${{ needs.get_tag.outputs.tag }}.apk
+            taison-*.apk
+          if-no-files-found: ignore
 
   build_foss:
-    if: github.repository == 'mihonapp/mihon'
+    if: github.repository == 'AhmadNaruto/Taison'
     name: Build (FOSS)
-    runs-on: ubuntu-24.04
-    needs: get_tag
+    runs-on: ubuntu-latest
+    needs: initialize
 
     steps:
       - name: Checkout
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@v6
 
       - name: Set up JDK
-        uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
+        uses: actions/setup-java@v5
         with:
-          java-version: 17
+          java-version: 21
           distribution: temurin
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
-        with:
-          cache-disabled: true
+        uses: gradle/actions/setup-gradle@v5
 
       - name: Build
         run: ./gradlew assembleFoss -Penable-updater
 
+      - name: Debug - List FOSS APK files before signing
+        run: |
+          echo "=== FOSS APK files before signing ==="
+          find app/build/outputs/apk/foss -name "*.apk" -type f 2>/dev/null | xargs ls -la || echo "No FOSS APK files found"
+
       - name: Sign APK
-        uses: r0adkll/sign-android-release@f30bdd30588842ac76044ecdbd4b6d0e3e813478
+        uses: r0adkll/sign-android-release@v1
         with:
           releaseDirectory: app/build/outputs/apk/foss
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
@@ -110,62 +163,85 @@ jobs:
         env:
           BUILD_TOOLS_VERSION: '35.0.1'
 
-      - name: Rename APK
+      - name: Debug - List FOSS APK files after signing
         run: |
-          set -e
+          echo "=== Signed FOSS APK files ==="
+          find app/build/outputs/apk/foss -name "*.apk" -type f 2>/dev/null | xargs ls -la || echo "No signed FOSS APK files found"
 
-          mv app/build/outputs/apk/foss/app-universal-foss-unsigned-signed.apk mihon-${{ needs.get_tag.outputs.tag }}-foss.apk
+      - name: Find and rename FOSS APK
+        run: |
+          TAG="${{ needs.initialize.outputs.tag }}"
+          FOSS_DIR="app/build/outputs/apk/foss"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+          echo "Looking for FOSS APK in: $FOSS_DIR"
+
+          # Cari file FOSS APK yang sudah ditandatangani
+          FOSS_APK=$(find "$FOSS_DIR" -name "*.apk" -type f 2>/dev/null | head -1)
+
+          if [ -n "$FOSS_APK" ]; then
+            echo "Found FOSS APK: $FOSS_APK"
+            mv "$FOSS_APK" "taison-$TAG-foss.apk"
+            echo "Renamed to: taison-$TAG-foss.apk"
+          else
+            echo "No FOSS APK found"
+          fi
+
+          echo "=== Final FOSS APK ==="
+          ls -la *foss*.apk 2>/dev/null || echo "No FOSS APK files"
+
+      - name: Upload FOSS APK
+        uses: actions/upload-artifact@v5
         with:
-          name: mihon-foss
-          path: mihon-${{ needs.get_tag.outputs.tag }}-foss.apk
+          name: taison-foss
+          path: |
+            *foss*.apk
+          if-no-files-found: warn
 
   release:
-    if: github.repository == 'mihonapp/mihon'
     name: Create GitHub Release
     runs-on: ubuntu-24.04
-    needs: [get_tag, build, build_foss]
+    needs: [initialize, build, build_foss]
 
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - name: Download artifacts
+        uses: actions/download-artifact@v5
         with:
-          merge-multiple: true
+          path: artifacts
 
-      - name: Delete all artifacts
-        uses: geekyeggo/delete-artifact@f275313e70c08f6120db482d7a6b98377786765b # v5.1.0
-        with:
-          failOnError: false
-          name: |
-            mihon
-            mihon-foss
+      - name: List downloaded files
+        run: |
+          echo "=== Downloaded artifacts ==="
+          find artifacts -type f -name "*.apk" | xargs ls -la
+
+      - name: Prepare release files
+        run: |
+          TAG="${{ needs.initialize.outputs.tag }}"
+          mkdir -p release_files
+
+          # Copy semua file APK ke folder release_files
+          find artifacts -name "*.apk" -type f -exec cp {} release_files/ \;
+
+          echo "=== Files ready for release ==="
+          ls -la release_files/
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.get_tag.outputs.tag }}
-          name: Mihon ${{ needs.get_tag.outputs.tag }}
+          tag_name: ${{ needs.initialize.outputs.tag }}
+          name: Taison ${{ needs.initialize.outputs.tag }}
           body: |
-            Check out the [past release notes](https://github.com/mihonapp/mihon/releases) if you’re upgrading from an earlier version. Consider [donating via Open Collective](https://opencollective.com/mihon/contribute) to help keep Mihon improving!
+            ## Release Notes
 
-            <!-->
+            Check out the [past release notes](https://github.com/AhmadNaruto/Taison/releases) if you're upgrading from an earlier version.
 
+            > **Tip:** If you are unsure which version to download then go with `taison-${{ needs.initialize.outputs.tag }}.apk`
 
-
-            <!-->
-
-            > [!TIP]
-            >
-            > ### If you are unsure which version to download then go with `mihon-${{ needs.get_tag.outputs.tag }}.apk`
-          files: |
-            mihon-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-${{ needs.get_tag.outputs.tag }}-foss.apk
-            mihon-arm64-v8a-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-armeabi-v7a-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-x86-${{ needs.get_tag.outputs.tag }}.apk
-            mihon-x86_64-${{ needs.get_tag.outputs.tag }}.apk
-          draft: true
+            ### Files included:
+            - `taison-${{ needs.initialize.outputs.tag }}.apk` - Universal APK (recommended for most users)
+            - `taison-${{ needs.initialize.outputs.tag }}-foss.apk` - FOSS version (without proprietary components)
+            - Architecture-specific APKs for better performance on specific devices
+          files: release_files/*
+          draft: false
           prerelease: false
-          token: ${{ secrets.MIHON_BOT_TOKEN }}
+          generate_release_notes: true
+          token: ${{ secrets.GITHUB_TOKEN }}
