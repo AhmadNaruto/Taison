@@ -80,3 +80,9 @@
 # Firebase
 -keep class com.google.firebase.installations.** { *; }
 -keep interface com.google.firebase.installations.** { *; }
+
+# androidx.webkit
+-keep class androidx.webkit.** { *; }
+-keep class androidx.webkit.**$** { *; }
+-keep interface androidx.webkit.** { *; }
+-keep interface androidx.webkit.**$** { *; }

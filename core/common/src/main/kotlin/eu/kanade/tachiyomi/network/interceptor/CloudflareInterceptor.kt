@@ -8,6 +8,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebResourceErrorCompat
+import androidx.webkit.WebViewClientCompat
 import eu.kanade.tachiyomi.network.AndroidCookieJar
 import eu.kanade.tachiyomi.util.system.isOutdated
 import eu.kanade.tachiyomi.util.system.toast
@@ -87,7 +89,7 @@ class CloudflareInterceptor(
         executor.execute {
             webview = createWebView(originalRequest)
 
-            webview?.webViewClient = object : WebViewClient() {
+            webview?.webViewClient = object : WebViewClientCompat() {
                 override fun onPageFinished(view: WebView, url: String) {
                     fun isCloudFlareBypassed(): Boolean {
                         return cookieManager.get(origRequestUrl.toHttpUrl())
@@ -117,6 +119,28 @@ class CloudflareInterceptor(
                             challengeFound = true
                         } else {
                             // Unlock thread, the challenge wasn't found.
+                            latch.countDown()
+                        }
+                    }
+                }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    error: WebResourceErrorCompat?,
+                ) {
+                    if (request?.isForMainFrame == true) {
+                        // Handle compatibility with older Android versions
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            if (error?.errorCode in ERROR_CODES) {
+                                // Found the Cloudflare challenge page.
+                                challengeFound = true
+                            } else {
+                                // Unlock thread, the challenge wasn't found.
+                                latch.countDown()
+                            }
+                        } else {
+                            // For older versions, fallback to the original method
                             latch.countDown()
                         }
                     }

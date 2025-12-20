@@ -5,6 +5,8 @@ import android.os.Build
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.widget.Toast
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import eu.kanade.tachiyomi.util.system.DeviceUtil
 import eu.kanade.tachiyomi.util.system.WebViewUtil
 import eu.kanade.tachiyomi.util.system.setDefaultSettings
@@ -38,7 +40,12 @@ abstract class WebViewInterceptor(
         }
 
         try {
-            WebSettings.getDefaultUserAgent(context)
+            // Use androidx.webkit for getting default user agent if available
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.GET_DEFAULT_USER_AGENT)) {
+                androidx.webkit.WebViewCompat.getDefaultUserAgent(context)
+            } else {
+                WebSettings.getDefaultUserAgent(context)
+            }
         } catch (_: Exception) {
             // Avoid some crashes like when Chrome/WebView is being updated.
         }

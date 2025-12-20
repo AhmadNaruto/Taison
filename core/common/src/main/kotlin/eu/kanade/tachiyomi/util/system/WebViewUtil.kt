@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import kotlinx.coroutines.suspendCancellableCoroutine
 import logcat.LogPriority
 import tachiyomi.core.common.util.system.logcat
@@ -64,6 +66,17 @@ object WebViewUtil {
             SYSTEM_SETTINGS_PACKAGE
         }
     }
+
+    /**
+     * Gets the WebView package version using androidx.webkit for better compatibility
+     */
+    fun getWebViewVersionInfo(context: Context): String {
+        return if (WebViewFeature.isFeatureSupported(WebViewFeature.GET_WEB_VIEW_VENDOR_AND_VERSION)) {
+            androidx.webkit.WebViewCompat.getWebViewVendorAndVersion(context)
+        } else {
+            getVersion(context)
+        }
+    }
 }
 
 fun WebView.isOutdated(): Boolean {
@@ -90,6 +103,15 @@ fun WebView.setDefaultSettings() {
         setSupportZoom(true)
         builtInZoomControls = true
         displayZoomControls = false
+
+        // Use androidx.webkit features where available
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+            WebSettingsCompat.setForceDark(this, WebSettingsCompat.FORCE_DARK_OFF)
+        }
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.SAFE_BROWSING_ENABLE)) {
+            WebSettingsCompat.setSafeBrowsingEnabled(this, false)
+        }
     }
 
     CookieManager.getInstance().acceptThirdPartyCookies(this)
